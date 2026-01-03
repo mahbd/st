@@ -5,6 +5,7 @@
 
 use clap::Parser;
 
+mod ai;
 mod cli;
 mod config;
 mod constants;

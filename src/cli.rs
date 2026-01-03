@@ -45,10 +45,15 @@ impl Cli {
     /// - `Result<StConfig>` - The global `st` config.
     pub(crate) fn load_cfg_or_initialize() -> StResult<StConfig> {
         // Load the global configuration for `st`, or initialize it if it doesn't exist.
-        match StConfig::try_load()? {
-            Some(config) if config.validate().is_ok() => Ok(config),
-            _ => prompt_for_configuration(None),
-        }
+        let config = match StConfig::try_load()? {
+            Some(config) if config.validate().is_ok() => config,
+            _ => prompt_for_configuration(None)?,
+        };
+        
+        // Set the EDITOR environment variable from the config
+        std::env::set_var("EDITOR", &config.editor);
+        
+        Ok(config)
     }
 
     /// Loads the [StContext] for the given [Repository]. If the context does not exist,
@@ -62,7 +67,7 @@ impl Cli {
     pub(crate) fn load_ctx_or_initialize(
         config: StConfig,
         repo: &Repository,
-    ) -> StResult<StContext> {
+    ) -> StResult<StContext<'_>> {
         // Attempt to load the repository store, or create a new one if it doesn't exist.
         if let Some(ctx) = StContext::try_load(config.clone(), repo)? {
             return Ok(ctx);

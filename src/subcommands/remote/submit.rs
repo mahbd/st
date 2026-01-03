@@ -151,8 +151,20 @@ impl SubmitCmd {
                 // Push the branch to the remote.
                 ctx.repository.push_branch(branch, "origin", self.force)?;
 
+                // Get the diff between the branch and its parent
+                let diff = ctx
+                    .repository
+                    .diff_branches(branch, parent)
+                    .unwrap_or_else(|_| String::from("Unable to generate diff"));
+
+                // Get commit messages between the branch and its parent
+                let commits = ctx
+                    .repository
+                    .commit_messages_between(branch, parent)
+                    .unwrap_or_else(|_| vec![]);
+
                 // Prompt the user for PR metadata.
-                let metadata = Self::prompt_pr_metadata(branch, parent)?;
+                let metadata = Self::prompt_pr_metadata(&mut ctx.cfg, branch, parent, &commits, &diff).await?;
 
                 // Submit PR.
                 let pr_info = pulls
@@ -230,19 +242,99 @@ impl SubmitCmd {
     }
 
     /// Prompts the user for metadata about the PR during the initial submission process.
-    fn prompt_pr_metadata(branch_name: &str, parent_name: &str) -> StResult<PRCreationMetadata> {
+    async fn prompt_pr_metadata(
+        config: &mut crate::config::StConfig,
+        branch_name: &str,
+        parent_name: &str,
+        commits: &[String],
+        diff: &str,
+    ) -> StResult<PRCreationMetadata> {
         let title = inquire::Text::new(
             format!(
-                "Title of pull request (`{}` -> `{}`):",
+                "Title of pull request (`{}` -> `{}`):" ,
                 Color::Green.paint(branch_name),
                 Color::Yellow.paint(parent_name)
             )
             .as_str(),
         )
         .prompt()?;
-        let body = inquire::Editor::new("Pull request description")
-            .with_file_extension(".md")
-            .prompt()?;
+
+        // Check if Ollama is available and offer AI generation
+        let use_ai = if crate::ai::is_ollama_available().await {
+            inquire::Confirm::new("Use AI to generate PR description?")
+                .with_default(false)
+                .prompt()
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        let body = if use_ai {
+            // List available models
+            let models = crate::ai::list_models().await?;
+            if models.is_empty() {
+                eprintln!(
+                    "{}",
+                    Color::Yellow.paint("No Ollama models found. Falling back to manual entry.")
+                );
+                inquire::Editor::new("Pull request description")
+                    .with_file_extension(".md")
+                    .prompt()?
+            } else {
+                // Check if saved model preference exists and is still available
+                let model = if !config.ollama_model.is_empty() 
+                    && models.contains(&config.ollama_model) {
+                    println!(
+                        "{} {}",
+                        Color::Blue.paint("Using saved model:"),
+                        Color::Green.paint(&config.ollama_model)
+                    );
+                    config.ollama_model.clone()
+                } else {
+                    // Ask user to select a model
+                    let selected = inquire::Select::new("Select Ollama model:", models).prompt()?;
+                    // Save the preference
+                    config.ollama_model = selected.clone();
+                    selected
+                };
+
+                println!(
+                    "{}",
+                    Color::Blue.paint("Generating PR description with AI...")
+                );
+
+                match crate::ai::generate_pr_description(&model, &title, branch_name, parent_name, commits, diff)
+                    .await
+                {
+                    Ok(generated) => {
+                        println!(
+                            "{}",
+                            Color::Green.paint("✓ Generated PR description. Review and edit if needed.")
+                        );
+                        // Let user review and edit the AI-generated description
+                        inquire::Editor::new("Review and edit PR description")
+                            .with_file_extension(".md")
+                            .with_predefined_text(&generated)
+                            .prompt()?
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "{}: {}",
+                            Color::Red.paint("AI generation failed"),
+                            e
+                        );
+                        inquire::Editor::new("Pull request description")
+                            .with_file_extension(".md")
+                            .prompt()?
+                    }
+                }
+            }
+        } else {
+            inquire::Editor::new("Pull request description")
+                .with_file_extension(".md")
+                .prompt()?
+        };
+
         let is_draft = inquire::Confirm::new("Is this PR a draft? (default: yes)")
             .with_default(true)
             .prompt()?;

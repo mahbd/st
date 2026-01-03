@@ -14,12 +14,32 @@ pub(crate) const DEFAULT_CONFIG_PRETTY: &str = r#"# GitHub personal access token
 # - repo:public_repo
 #
 # If you're planning to use st with private repositories, you'll need to add the full `repo` scope.
-github_token = """#;
+github_token = ""
+
+# Editor to use for commit messages and PR descriptions.
+# This will be set in the EDITOR environment variable.
+# Common options: "vim", "emacs", "nano", "code --wait"
+editor = "nano"
+
+# Preferred Ollama model for AI-generated PR descriptions.
+# Leave empty to be prompted each time, or set to a model name like "llama2" or "codellama".
+# If the model is deleted, you'll be prompted to select a new one.
+ollama_model = """#;
 
 #[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StConfig {
     /// GitHub personal access token.
     pub github_token: String,
+    /// Editor to use for commit messages and PR descriptions.
+    #[serde(default = "default_editor")]
+    pub editor: String,
+    /// Preferred Ollama model for AI-generated PR descriptions.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ollama_model: String,
+}
+
+fn default_editor() -> String {
+    "nano".to_string()
 }
 
 impl StConfig {
@@ -50,6 +70,8 @@ impl StConfig {
                                 // Create new config with the token
                                 return Ok(Some(Self {
                                     github_token: token,
+                                    editor: default_editor(),
+                                    ollama_model: String::new(),
                                 }));
                             }
                         }

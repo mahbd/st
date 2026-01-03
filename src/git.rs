@@ -22,7 +22,7 @@ pub trait RepositoryExt {
     ///
     /// ## Returns
     /// - `Result<Branch>` - The current [Branch], or an error.
-    fn current_branch(&self) -> Result<Branch, git2::Error>;
+    fn current_branch(&self) -> Result<Branch<'_>, git2::Error>;
 
     /// Returns the name of the current [Branch].
     ///
@@ -100,10 +100,34 @@ pub trait RepositoryExt {
     /// ## Returns
     /// - `Result<()>` - The result of the operation.
     fn pull_branch(&self, branch_name: &str, remote_name: &str) -> Result<(), GitCommandError>;
+
+    /// Gets the diff between two branches.
+    ///
+    /// ## Takes
+    /// - `branch_name` - The name of the first branch.
+    /// - `base_name` - The name of the base branch.
+    ///
+    /// ## Returns
+    /// - `Result<String>` - The diff as a string.
+    fn diff_branches(&self, branch_name: &str, base_name: &str) -> Result<String, GitCommandError>;
+
+    /// Gets commit messages between two branches.
+    ///
+    /// ## Takes
+    /// - `branch_name` - The name of the branch with commits.
+    /// - `base_name` - The name of the base branch.
+    ///
+    /// ## Returns
+    /// - `Result<Vec<String>>` - Vector of commit messages.
+    fn commit_messages_between(
+        &self,
+        branch_name: &str,
+        base_name: &str,
+    ) -> Result<Vec<String>, GitCommandError>;
 }
 
 impl RepositoryExt for Repository {
-    fn current_branch(&self) -> Result<Branch, git2::Error> {
+    fn current_branch(&self) -> Result<Branch<'_>, git2::Error> {
         let head = self.head()?;
         let branch = self.find_branch(
             head.name()
@@ -212,6 +236,51 @@ impl RepositoryExt for Repository {
     fn pull_branch(&self, branch_name: &str, remote_name: &str) -> Result<(), GitCommandError> {
         self.checkout_branch(branch_name)?;
         execute_git_command(&["pull", remote_name, branch_name], false)
+    }
+
+    fn diff_branches(&self, branch_name: &str, base_name: &str) -> Result<String, GitCommandError> {
+        let output = Command::new("git")
+            .args(["diff", base_name, branch_name])
+            .output()?;
+
+        if !output.status.success() {
+            return Err(GitCommandError::Command(format!(
+                "Failed to get diff between {} and {}",
+                base_name, branch_name
+            )));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    fn commit_messages_between(
+        &self,
+        branch_name: &str,
+        base_name: &str,
+    ) -> Result<Vec<String>, GitCommandError> {
+        let output = Command::new("git")
+            .args([
+                "log",
+                "--pretty=format:%s%n%n%b",
+                &format!("{}..{}", base_name, branch_name),
+            ])
+            .output()?;
+
+        if !output.status.success() {
+            return Err(GitCommandError::Command(format!(
+                "Failed to get commits between {} and {}",
+                base_name, branch_name
+            )));
+        }
+
+        let log = String::from_utf8_lossy(&output.stdout);
+        let messages: Vec<String> = log
+            .split("\n\n")
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.trim().to_string())
+            .collect();
+
+        Ok(messages)
     }
 }
 
