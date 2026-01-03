@@ -87,12 +87,23 @@ impl StContext<'_> {
 
     /// Performs a restack of the active stack.
     pub fn restack(&mut self) -> StResult<()> {
-        // Discover the current stack.
-        let stack = self.discover_stack()?;
+        // Get all branches in the tree (ordered: parents before children)
+        let all_branches = self.tree.branches()?;
 
-        // Rebase each branch onto its parent.
-        for (i, branch) in stack.iter().enumerate().skip(1) {
-            self.restack_branch(branch, &stack[i - 1])?;
+        // Restack each branch onto its parent
+        for branch in all_branches.iter().skip(1) {
+            let parent_name = {
+                let tracked_branch = self
+                    .tree
+                    .get(branch)
+                    .ok_or_else(|| StError::BranchNotTracked(branch.to_string()))?;
+                
+                tracked_branch.parent.clone()
+            };
+            
+            if let Some(parent) = parent_name {
+                self.restack_branch(branch, &parent)?;
+            }
         }
 
         Ok(())

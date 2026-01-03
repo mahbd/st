@@ -17,6 +17,9 @@ pub struct SubmitCmd {
     /// Force the submission of the stack, analogous to `git push --force`.
     #[clap(long, short)]
     force: bool,
+    /// Submit all tracked branches, not just the current stack.
+    #[clap(long, short)]
+    all: bool,
 }
 
 impl SubmitCmd {
@@ -29,12 +32,18 @@ impl SubmitCmd {
         let (owner, repo) = ctx.owner_and_repository()?;
         let mut pulls = gh_client.pulls(&owner, &repo);
 
-        // Resolve the active stack.
-        let stack = ctx.discover_stack()?;
+        // Resolve the branches to submit
+        let branches_to_submit = if self.all {
+            // Submit all tracked branches
+            ctx.tree.branches()?
+        } else {
+            // Submit only the current stack
+            ctx.discover_stack()?
+        };
 
         // Perform pre-flight checks.
         println!("🔍 Checking for closed pull requests...");
-        self.pre_flight(&mut ctx, &stack, &mut pulls).await?;
+        self.pre_flight(&mut ctx, &branches_to_submit, &mut pulls).await?;
 
         // Submit the stack.
         println!(
@@ -46,7 +55,7 @@ impl SubmitCmd {
 
         // Update the stack navigation comments on the PRs.
         println!("\n📝 Updating stack navigation comments...");
-        self.update_pr_comments(&mut ctx, gh_client.issues(owner, repo), &stack)
+        self.update_pr_comments(&mut ctx, gh_client.issues(owner, repo), &branches_to_submit)
             .await?;
 
         println!("\n🧙💫 All pull requests up to date.");
@@ -91,11 +100,27 @@ impl SubmitCmd {
         owner: &str,
         repo: &str,
     ) -> StResult<()> {
-        let stack = ctx.discover_stack()?;
+        // Get all branches to process
+        let all_branches = if self.all {
+            ctx.tree.branches()?
+        } else {
+            ctx.discover_stack()?
+        };
 
-        // Iterate over the stack and submit PRs.
-        for (i, branch) in stack.iter().enumerate().skip(1) {
-            let parent = &stack[i - 1];
+        // Iterate over the branches and submit PRs.
+        for branch in all_branches.iter().skip(1) {
+            // Get the parent for this specific branch
+            let parent = {
+                let tracked_branch = ctx
+                    .tree
+                    .get(branch)
+                    .ok_or_else(|| StError::BranchNotTracked(branch.to_string()))?;
+                
+                tracked_branch
+                    .parent
+                    .clone()
+                    .ok_or_else(|| StError::BranchNotTracked(format!("Parent not found for {}", branch)))?
+            };
 
             let tracked_branch = ctx
                 .tree
@@ -109,17 +134,17 @@ impl SubmitCmd {
                 let remote_pr = pulls.get(remote_meta.pr_number).await?;
 
                 // Check if the PR base needs to be updated
-                if &remote_pr.base.ref_field != parent {
+                if &remote_pr.base.ref_field != &parent {
                     // Update the PR base.
                     pulls
                         .update(remote_meta.pr_number)
-                        .base(parent)
+                        .base(&parent)
                         .send()
                         .await?;
                     println!(
                         "-> Updated base branch for pull request for branch `{}` to `{}`.",
                         Color::Green.paint(branch),
-                        Color::Yellow.paint(parent)
+                        Color::Yellow.paint(&parent)
                     );
                 }
 
@@ -154,21 +179,21 @@ impl SubmitCmd {
                 // Get the diff between the branch and its parent
                 let diff = ctx
                     .repository
-                    .diff_branches(branch, parent)
+                    .diff_branches(branch, &parent)
                     .unwrap_or_else(|_| String::from("Unable to generate diff"));
 
                 // Get commit messages between the branch and its parent
                 let commits = ctx
                     .repository
-                    .commit_messages_between(branch, parent)
+                    .commit_messages_between(branch, &parent)
                     .unwrap_or_else(|_| vec![]);
 
                 // Prompt the user for PR metadata.
-                let metadata = Self::prompt_pr_metadata(&mut ctx.cfg, branch, parent, &commits, &diff).await?;
+                let metadata = Self::prompt_pr_metadata(&mut ctx.cfg, branch, &parent, &commits, &diff).await?;
 
                 // Submit PR.
                 let pr_info = pulls
-                    .create(metadata.title, branch, parent)
+                    .create(metadata.title, branch, &parent)
                     .body(metadata.body)
                     .draft(metadata.is_draft)
                     .send()

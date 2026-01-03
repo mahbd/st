@@ -54,6 +54,9 @@ Usage: st [OPTIONS] <COMMAND>
 Commands:
   sync      Sync the remote branches with the local branches [aliases: rs, sy]
   submit    Submit the current PR stack to GitHub [aliases: s, ss]
+            Options:
+              -f, --force    Force push branches (like git push --force)
+              -a, --all      Submit all tracked branches, not just current stack
   checkout  Checkout a branch that is tracked with `st` [aliases: co]
   create    Create and track a new branch within the current stack [aliases: c]
   delete    Delete a branch that is tracked with `st` [aliases: d, del]

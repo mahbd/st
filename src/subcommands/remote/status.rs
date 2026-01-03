@@ -22,10 +22,11 @@ impl StatusCmd {
         let (owner, repo) = ctx.owner_and_repository()?;
         let pulls = gh_client.pulls(&owner, &repo);
 
-        let current_stack = ctx.discover_stack()?;
+        // Show all tracked branches instead of just the linear stack
+        let all_branches = ctx.tree.branches()?;
 
         let mut rows = vec![];
-        for branch in current_stack.into_iter() {
+        for branch in all_branches.into_iter() {
             let tracked_branch = ctx
                 .tree
                 .get(&branch)
