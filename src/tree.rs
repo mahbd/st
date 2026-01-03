@@ -324,12 +324,12 @@ impl TrackedBranch {
 #[serde(rename_all = "kebab-case")]
 pub struct RemoteMetadata {
     /// The number of the pull request on GitHub associated with the branch.
-    pub(crate) pr_number: u64,
+    pub pr_number: u64,
     /// The comment ID of the stack status comment on the pull request.
     ///
     /// This is used to update the comment with the latest stack status each time the stack
     /// is submitted.
-    pub(crate) comment_id: Option<u64>,
+    pub comment_id: Option<u64>,
 }
 
 impl RemoteMetadata {
