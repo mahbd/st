@@ -11,27 +11,140 @@ use std::collections::{HashMap, HashSet};
 ///
 /// [StContext]: crate::ctx::StContext
 /// [Repository]: git2::Repository
-#[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct StackTree {
-    /// The name of the trunk branch.
-    pub trunk_name: String,
-    /// A map of branch names to [TrackedBranch]es.
+    /// The name of the active trunk branch.
+    #[serde(default)]
+    pub active_trunk: String,
+    /// Legacy field for backward compatibility. If present, migrated to trunks on load.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trunk_name: Option<String>,
+    /// Map of trunk names to their branch trees.
+    #[serde(default)]
+    pub trunks: HashMap<String, TrunkBranches>,
+    /// Legacy branches field for backward compatibility.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branches: Option<HashMap<String, TrackedBranch>>,
+}
+
+/// Branches associated with a specific trunk.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TrunkBranches {
+    /// The trunk branch name.
+    pub name: String,
+    /// Map of branch names to tracked branches.
     pub branches: HashMap<String, TrackedBranch>,
+}
+
+impl Default for StackTree {
+    fn default() -> Self {
+        Self {
+            active_trunk: String::new(),
+            trunk_name: None,
+            trunks: HashMap::new(),
+            branches: None,
+        }
+    }
 }
 
 impl StackTree {
     /// Creates a new [StackTree] with the given trunk branch name.
     pub fn new(trunk_name: String) -> Self {
-        let branches = HashMap::from([(
-            trunk_name.clone(),
-            TrackedBranch::new(trunk_name.clone(), None, None),
-        )]);
+        let mut tree = Self::default();
+        tree.add_trunk(trunk_name.clone());
+        tree.active_trunk = trunk_name;
+        tree
+    }
 
-        Self {
-            trunk_name,
-            branches,
+    /// Migrates legacy format to new multi-trunk format.
+    pub fn migrate_if_needed(&mut self) {
+        if let (Some(trunk_name), Some(branches)) = (self.trunk_name.take(), self.branches.take()) {
+            // Migrate from old format
+            self.trunks.insert(
+                trunk_name.clone(),
+                TrunkBranches {
+                    name: trunk_name.clone(),
+                    branches,
+                },
+            );
+            self.active_trunk = trunk_name;
         }
+    }
+
+    /// Adds a new trunk branch.
+    pub fn add_trunk(&mut self, trunk_name: String) {
+        if !self.trunks.contains_key(&trunk_name) {
+            let branches = HashMap::from([(
+                trunk_name.clone(),
+                TrackedBranch::new(trunk_name.clone(), None, None),
+            )]);
+            self.trunks.insert(
+                trunk_name.clone(),
+                TrunkBranches {
+                    name: trunk_name.clone(),
+                    branches,
+                },
+            );
+        }
+    }
+
+    /// Lists all trunk names.
+    pub fn list_trunks(&self) -> Vec<String> {
+        self.trunks.keys().cloned().collect()
+    }
+
+    /// Switches to a different trunk.
+    pub fn switch_trunk(&mut self, trunk_name: &str) -> StResult<()> {
+        if !self.trunks.contains_key(trunk_name) {
+            return Err(StError::BranchNotTracked(format!(
+                "Trunk '{}' not found",
+                trunk_name
+            )));
+        }
+        self.active_trunk = trunk_name.to_string();
+        Ok(())
+    }
+
+    /// Removes a trunk and all its branches.
+    pub fn remove_trunk(&mut self, trunk_name: &str) -> StResult<()> {
+        if trunk_name == self.active_trunk {
+            return Err(StError::BranchNotTracked(
+                "Cannot remove active trunk. Switch to another trunk first.".to_string(),
+            ));
+        }
+        if !self.trunks.contains_key(trunk_name) {
+            return Err(StError::BranchNotTracked(format!(
+                "Trunk '{}' not found",
+                trunk_name
+            )));
+        }
+        self.trunks.remove(trunk_name);
+        Ok(())
+    }
+
+    /// Gets the current trunk name.
+    pub fn trunk_name(&self) -> &str {
+        &self.active_trunk
+    }
+
+    /// Gets branches for the active trunk.
+    fn active_branches(&self) -> &HashMap<String, TrackedBranch> {
+        use std::sync::OnceLock;
+        static EMPTY: OnceLock<HashMap<String, TrackedBranch>> = OnceLock::new();
+        
+        self.trunks
+            .get(&self.active_trunk)
+            .map(|t| &t.branches)
+            .unwrap_or_else(|| EMPTY.get_or_init(HashMap::new))
+    }
+
+    /// Gets mutable branches for the active trunk.
+    fn active_branches_mut(&mut self) -> &mut HashMap<String, TrackedBranch> {
+        self.trunks
+            .get_mut(&self.active_trunk)
+            .map(|t| &mut t.branches)
+            .expect("Active trunk must exist")
     }
 
     /// Gets a branch by name from the stack graph.
@@ -43,7 +156,7 @@ impl StackTree {
     /// - `Some(branch)` - The branch.
     /// - `None` - The branch by the name of `branch_name` was not found.
     pub fn get(&self, branch_name: &str) -> Option<&TrackedBranch> {
-        self.branches.get(branch_name)
+        self.active_branches().get(branch_name)
     }
 
     /// Gets a mutable branch by name from the stack graph.
@@ -55,7 +168,7 @@ impl StackTree {
     /// - `Some(branch)` - The branch.
     /// - `None` - The branch by the name of `branch_name` was not found.
     pub fn get_mut(&mut self, branch_name: &str) -> Option<&mut TrackedBranch> {
-        self.branches.get_mut(branch_name)
+        self.active_branches_mut().get_mut(branch_name)
     }
 
     /// Adds a child branch to the passed parent branch, if it exists.
@@ -75,8 +188,8 @@ impl StackTree {
         branch_name: &str,
     ) -> StResult<()> {
         // Get the parent branch.
-        let parent = self
-            .branches
+        let branches = self.active_branches_mut();
+        let parent = branches
             .get_mut(parent_name)
             .ok_or_else(|| StError::BranchNotTracked(parent_name.to_string()))?;
 
@@ -89,7 +202,9 @@ impl StackTree {
             Some(parent_name.to_string()),
             Some(parent_oid_cache.to_string()),
         );
-        self.branches.insert(branch_name.to_string(), child);
+        
+        let branches = self.active_branches_mut();
+        branches.insert(branch_name.to_string(), child);
 
         Ok(())
     }
@@ -104,36 +219,36 @@ impl StackTree {
     /// - `None` - The branch by the name of `branch` was not found.
     pub fn delete(&mut self, branch_name: &str) -> StResult<TrackedBranch> {
         // Remove the branch from the stack tree.
-        let branch = self
-            .branches
+        let branches = self.active_branches_mut();
+        let branch = branches
             .remove(branch_name)
             .ok_or_else(|| StError::BranchNotTracked(branch_name.to_string()))?;
 
         // Remove the child from the parent's children list.
         if let Some(ref parent_name) = branch.parent {
-            let parent_branch = self
-                .branches
+            let branches = self.active_branches_mut();
+            let parent_branch = branches
                 .get_mut(parent_name)
                 .ok_or_else(|| StError::BranchNotTracked(parent_name.to_string()))?;
             parent_branch.children.remove(branch_name);
 
             // Re-link the children of the deleted branch to the parent.
-            branch.children.iter().try_for_each(|child_name| {
+            let children = branch.children.clone();
+            for child_name in children.iter() {
                 // Change the pointer of the child to the parent.
-                let child = self
-                    .branches
+                let branches = self.active_branches_mut();
+                let child = branches
                     .get_mut(child_name)
                     .ok_or_else(|| StError::BranchNotTracked(child_name.to_string()))?;
                 child.parent = branch.parent.clone();
 
                 // Add the child to the parent's children list.
-                let parent = self
-                    .branches
+                let branches = self.active_branches_mut();
+                let parent = branches
                     .get_mut(parent_name)
                     .ok_or_else(|| StError::BranchNotTracked(parent_name.to_string()))?;
                 parent.children.insert(child_name.clone());
-                Ok::<_, StError>(())
-            })?;
+            }
         }
 
         Ok(branch)
@@ -143,7 +258,7 @@ impl StackTree {
     /// guaranteed to be listed after their parents.
     pub fn branches(&self) -> StResult<Vec<String>> {
         let mut branch_names = Vec::new();
-        self.fill_branches(&self.trunk_name, &mut branch_names)?;
+        self.fill_branches(self.trunk_name(), &mut branch_names)?;
         Ok(branch_names)
     }
 
@@ -151,7 +266,7 @@ impl StackTree {
     /// children are guaranteed to be listed after their parents.
     fn fill_branches(&self, name: &str, branch_names: &mut Vec<String>) -> StResult<()> {
         let current = self
-            .branches
+            .active_branches()
             .get(name)
             .ok_or_else(|| StError::BranchNotTracked(name.to_string()))?;
 

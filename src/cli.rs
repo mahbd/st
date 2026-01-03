@@ -51,7 +51,11 @@ impl Cli {
         };
         
         // Set the EDITOR environment variable from the config
-        std::env::set_var("EDITOR", &config.editor);
+        // SAFETY: This is called during single-threaded initialization before any
+        // other threads are spawned, so there's no risk of data races.
+        unsafe {
+            std::env::set_var("EDITOR", &config.editor);
+        }
         
         Ok(config)
     }

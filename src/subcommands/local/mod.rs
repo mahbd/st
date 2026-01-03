@@ -23,3 +23,6 @@ pub use untrack::UntrackCmd;
 
 mod config;
 pub use config::ConfigCmd;
+
+mod trunk;
+pub use trunk::TrunkCmd;

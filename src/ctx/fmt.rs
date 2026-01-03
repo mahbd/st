@@ -48,7 +48,7 @@ impl StContext<'_> {
 
     /// Writes the tree of branches contained within the [StContext] to the given [Write]r.
     pub fn write_tree<W: Write>(&self, w: &mut W) -> StResult<()> {
-        let trunk_name = self.tree.trunk_name.as_str();
+        let trunk_name = self.tree.trunk_name();
         self.write_tree_recursive(w, trunk_name, 0, "", "", true)
     }
 

@@ -121,7 +121,7 @@ impl<'a> StContext<'a> {
         // Ensure the user does not:
         // 1. Attempt to delete the trunk branch.
         // 2. Attempt to delete an untracked branch.
-        if branch_name == self.tree.trunk_name {
+        if branch_name == self.tree.trunk_name() {
             return Err(StError::CannotDeleteTrunkBranch);
         } else if self.tree.get(branch_name).is_none() {
             return Err(StError::BranchNotTracked(branch_name.to_string()));
@@ -148,7 +148,7 @@ impl<'a> StContext<'a> {
 
         // Check out the trunk branch prior to deletion.
         self.repository
-            .checkout_branch(self.tree.trunk_name.as_str())?;
+            .checkout_branch(self.tree.trunk_name())?;
 
         // Delete the selected branch.
         self.repository

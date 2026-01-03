@@ -46,6 +46,13 @@ pub enum StError {
     /// A remote pull request could not be found.
     #[error("Remote pull request not found.")]
     PullRequestNotFound,
+    /// A base branch does not exist on remote.
+    #[error(
+        "Base branch `{}` does not exist on remote. Please push it first with: {}",
+        Color::Blue.paint(.0),
+        Color::Blue.paint(format!("git push origin {}", .0))
+    )]
+    BaseBranchNotOnRemote(String),
 
     // ---- [ Git Errors ] ----
     /// `st` mused be run within a git repository.

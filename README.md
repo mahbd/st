@@ -66,6 +66,14 @@ Commands:
   track     Track the current branch on top of a tracked stack node [aliases: tr]
   untrack   Untrack the passed branch [aliases: ut]
   config    Configure the st application [aliases: cfg]
+            - Set your preferred editor (default: nano, or $EDITOR env var)
+            - Configure Ollama model for AI-powered PR descriptions
+  trunk     Manage trunk branches (list, switch, add, remove) [aliases: t]
+            Subcommands:
+              list     List all trunk branches [aliases: ls]
+              switch   Switch to a different trunk [aliases: sw]
+              add      Add a new trunk branch
+              remove   Remove a trunk branch [aliases: rm]
   help      Print this message or the help of the given subcommand(s)
 
 Options:
@@ -73,6 +81,14 @@ Options:
   -h, --help     Print help
   -V, --version  Print version
 ```
+
+### Features
+
+- **Multi-Trunk Support**: Work with multiple base branches (main, dev, staging) simultaneously. Each trunk maintains its own independent branch tree.
+- **AI-Powered PR Descriptions**: Generate PR descriptions using local Ollama models with context from commits and diffs.
+- **Configurable Editor**: Use your preferred editor via the `EDITOR` environment variable or configure it with `st config`.
+- **Branching Stacks**: Create complex branch hierarchies with siblings and nested stacks.
+- **GitHub Integration**: Seamless PR creation and status tracking via GitHub API.
 
 ## Why?
 

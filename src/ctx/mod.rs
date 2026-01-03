@@ -56,7 +56,10 @@ impl<'a> StContext<'a> {
             return Ok(None);
         }
 
-        let stack: StackTree = toml::from_str(&std::fs::read_to_string(store_path)?)?;
+        let mut stack: StackTree = toml::from_str(&std::fs::read_to_string(store_path)?)?;
+        // Migrate old format if needed
+        stack.migrate_if_needed();
+        
         let mut store_with_repo = Self {
             cfg,
             repository,

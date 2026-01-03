@@ -81,7 +81,7 @@ impl SyncCmd {
                 .tree
                 .get(branch)
                 .ok_or_else(|| StError::BranchNotTracked(branch.clone()))?;
-            if tracked_branch.remote.is_none() && branch != &ctx.tree.trunk_name {
+            if tracked_branch.remote.is_none() && branch != ctx.tree.trunk_name() {
                 continue;
             }
 
