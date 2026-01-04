@@ -290,59 +290,128 @@ impl SubmitCmd {
         )
         .prompt()?;
 
-        // Check if Ollama is available and offer AI generation
-        let use_ai = if crate::ai::is_ollama_available().await {
-            inquire::Confirm::new("Use AI to generate PR description?")
-                .with_default(false)
-                .prompt()
-                .unwrap_or(false)
+        // Determine which AI option is available
+        let ollama_available = crate::ai::is_ollama_available().await;
+        let gemini_available = !config.gemini_api_key.is_empty();
+
+        // If both are available, let user choose
+        let use_ai = if ollama_available || gemini_available {
+            let mut options = vec!["Manual entry"];
+            if ollama_available {
+                options.push("Ollama (local)");
+            }
+            if gemini_available {
+                options.push("Gemini (cloud)");
+            }
+
+            if options.len() == 1 {
+                // Only manual entry available
+                false
+            } else {
+                let choice = inquire::Select::new(
+                    "How would you like to write the PR description?",
+                    options,
+                )
+                .prompt()?;
+
+                choice != "Manual entry"
+            }
         } else {
             false
         };
 
         let body = if use_ai {
-            // List available models
-            let models = crate::ai::list_models().await?;
-            if models.is_empty() {
-                eprintln!(
-                    "{}",
-                    Color::Yellow.paint("No Ollama models found. Falling back to manual entry.")
-                );
-                inquire::Editor::new("Pull request description")
-                    .with_file_extension(".md")
-                    .prompt()?
+            // Determine which AI service to use
+            let ai_choice = if ollama_available && gemini_available {
+                inquire::Select::new(
+                    "Select AI service:",
+                    vec!["Ollama (local)", "Gemini (cloud)"],
+                )
+                .prompt()?
+            } else if ollama_available {
+                "Ollama (local)"
             } else {
-                // Check if saved model preference exists and is still available
-                let model = if !config.ollama_model.is_empty() 
-                    && models.contains(&config.ollama_model) {
-                    println!(
-                        "{} {}",
-                        Color::Blue.paint("Using saved model:"),
-                        Color::Green.paint(&config.ollama_model)
-                    );
-                    config.ollama_model.clone()
-                } else {
-                    // Ask user to select a model
-                    let selected = inquire::Select::new("Select Ollama model:", models).prompt()?;
-                    // Save the preference
-                    config.ollama_model = selected.clone();
-                    selected
-                };
+                "Gemini (cloud)"
+            };
 
+            if ai_choice == "Ollama (local)" {
+                // Ollama flow
+                let models = crate::ai::list_models().await?;
+                if models.is_empty() {
+                    eprintln!(
+                        "{}",
+                        Color::Yellow.paint("No Ollama models found. Falling back to manual entry.")
+                    );
+                    inquire::Editor::new("Pull request description")
+                        .with_file_extension(".md")
+                        .prompt()?
+                } else {
+                    let model = if !config.ollama_model.is_empty() 
+                        && models.contains(&config.ollama_model) {
+                        println!(
+                            "{} {}",
+                            Color::Blue.paint("Using saved Ollama model:"),
+                            Color::Green.paint(&config.ollama_model)
+                        );
+                        config.ollama_model.clone()
+                    } else {
+                        let selected = inquire::Select::new("Select Ollama model:", models).prompt()?;
+                        config.ollama_model = selected.clone();
+                        selected
+                    };
+
+                    println!(
+                        "{}",
+                        Color::Blue.paint("Generating PR description with Ollama...")
+                    );
+
+                    match crate::ai::generate_pr_description(&model, &title, branch_name, parent_name, commits, diff)
+                        .await
+                    {
+                        Ok(generated) => {
+                            println!(
+                                "{}",
+                                Color::Green.paint("✓ Generated PR description. Review and edit if needed.")
+                            );
+                            inquire::Editor::new("Review and edit PR description")
+                                .with_file_extension(".md")
+                                .with_predefined_text(&generated)
+                                .prompt()?
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "{}: {}",
+                                Color::Red.paint("AI generation failed"),
+                                e
+                            );
+                            inquire::Editor::new("Pull request description")
+                                .with_file_extension(".md")
+                                .prompt()?
+                        }
+                    }
+                }
+            } else {
+                // Gemini flow
                 println!(
                     "{}",
-                    Color::Blue.paint("Generating PR description with AI...")
+                    Color::Blue.paint("Generating PR description with Gemini...")
                 );
 
-                match crate::ai::generate_pr_description(&model, &title, branch_name, parent_name, commits, diff)
-                    .await
+                match crate::ai::generate_pr_description_with_gemini(
+                    &config.gemini_api_key,
+                    &title,
+                    branch_name,
+                    parent_name,
+                    commits,
+                    diff,
+                )
+                .await
                 {
                     Ok(generated) => {
                         println!(
                             "{}",
                             Color::Green.paint("✓ Generated PR description. Review and edit if needed.")
                         );
-                        // Let user review and edit the AI-generated description
                         inquire::Editor::new("Review and edit PR description")
                             .with_file_extension(".md")
                             .with_predefined_text(&generated)
@@ -351,7 +420,7 @@ impl SubmitCmd {
                     Err(e) => {
                         eprintln!(
                             "{}: {}",
-                            Color::Red.paint("AI generation failed"),
+                            Color::Red.paint("Gemini generation failed"),
                             e
                         );
                         inquire::Editor::new("Pull request description")

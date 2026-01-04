@@ -24,7 +24,11 @@ editor = "nano"
 # Preferred Ollama model for AI-generated PR descriptions.
 # Leave empty to be prompted each time, or set to a model name like "llama2" or "codellama".
 # If the model is deleted, you'll be prompted to select a new one.
-ollama_model = """#;
+ollama_model = ""
+
+# Google Gemini API key for AI-generated PR descriptions.
+# Get your API key from: https://aistudio.google.com/app/apikey
+gemini_api_key = """#;
 
 #[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StConfig {
@@ -36,6 +40,9 @@ pub struct StConfig {
     /// Preferred Ollama model for AI-generated PR descriptions.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ollama_model: String,
+    /// Google Gemini API key for AI-generated PR descriptions.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub gemini_api_key: String,
 }
 
 fn default_editor() -> String {
@@ -72,6 +79,7 @@ impl StConfig {
                                     github_token: token,
                                     editor: default_editor(),
                                     ollama_model: String::new(),
+                                    gemini_api_key: String::new(),
                                 }));
                             }
                         }
@@ -130,7 +138,11 @@ pub fn prompt_for_configuration(existing_config: Option<&str>) -> StResult<StCon
     let ser_cfg = inquire::Editor::new(&setup_text)
         .with_file_extension(".toml")
         .with_predefined_text(default_text)
-        .prompt()?;
+        .prompt()
+        .map_err(|e| {
+            eprintln!("Editor error details: {:?}", e);
+            e
+        })?;
 
     let config: StConfig = toml::from_str(&ser_cfg)?;
     config.validate()?;

@@ -84,6 +84,9 @@ pub enum StError {
     /// An [ollama_rs::error::OllamaError] occurred.
     #[error("🤖 ollama error: {}", .0)]
     OllamaError(#[from] ollama_rs::error::OllamaError),
+    /// A [reqwest::Error] occurred.
+    #[error("🌐 reqwest error: {}", .0)]
+    ReqwestError(#[from] reqwest::Error),
     /// An [inquire::InquireError] occurred.
     #[error("🔍 inquire error: {}", .0)]
     InquireError(#[from] inquire::InquireError),
