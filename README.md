@@ -358,6 +358,10 @@ Syncs local branches with remote, handling merged/closed PRs.
 ```sh
 st sync
 st sy
+
+# Discover new branches from GitHub PRs (useful on new machines)
+st sync --discover
+st sync -d
 ```
 
 **What it does:**
@@ -365,6 +369,11 @@ st sy
 - Detects merged PRs
 - Offers to delete merged branches
 - Updates local tracking
+
+**With `--discover` flag:**
+- Scans GitHub PRs for branches created with `st`
+- Auto-fetches missing branches from remote
+- Tracks discovered branches automatically
 
 #### `st status`
 
@@ -538,6 +547,30 @@ st trunk switch main
 st log  # Only shows main-based branches
 ```
 
+### Setting Up on a New Machine
+
+When you clone a repo that already has PRs created with `st`:
+
+```sh
+# Clone the repo
+git clone https://github.com/org/repo
+cd repo
+
+# Initialize st (select trunk branch when prompted)
+st log
+
+# Discover and track existing branches from GitHub PRs
+st sync --discover
+
+# st will:
+# - Scan GitHub for PRs created with st
+# - Fetch missing branches from remote
+# - Automatically track all discovered branches
+
+# View the discovered stack
+st log
+```
+
 ### Branching Stacks (Siblings)
 
 Create sibling branches for parallel features:
@@ -649,6 +682,7 @@ st submit  # Will update PR bases automatically
 | **Interactive Branch Selection** | Easy checkout with fuzzy finding |
 | **Automatic Restacking** | Keep branches up-to-date with parents |
 | **PR Status Tracking** | View PR status without leaving terminal |
+| **Branch Auto-Discovery** | Automatically discover and track branches from GitHub PRs on new machines |
 
 ---
 

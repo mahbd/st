@@ -10,6 +10,7 @@ use git2::{BranchType, Repository};
 use std::path::PathBuf;
 
 mod actions;
+pub mod discovery;
 mod fmt;
 mod stack_management;
 

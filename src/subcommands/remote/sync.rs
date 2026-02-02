@@ -1,7 +1,7 @@
 //! `sync` subcommand.
 
 use crate::{
-    ctx::StContext,
+    ctx::{discovery, StContext},
     errors::{StError, StResult},
     git::RepositoryExt,
 };
@@ -11,7 +11,11 @@ use octocrab::{pulls::PullRequestHandler, Octocrab};
 
 /// CLI arguments for the `sync` subcommand.
 #[derive(Debug, Clone, Eq, PartialEq, Args)]
-pub struct SyncCmd;
+pub struct SyncCmd {
+    /// Discover and track new branches from GitHub PRs created with `st`.
+    #[clap(long, short)]
+    discover: bool,
+}
 
 impl SyncCmd {
     /// Run the `sync` subcommand.
@@ -25,6 +29,30 @@ impl SyncCmd {
 
         // Perform pre-flight checks.
         self.pre_flight(&mut ctx, &mut pulls).await?;
+
+        // Discover new branches from GitHub if requested.
+        if self.discover {
+            println!("\n🔍 Discovering new branches from GitHub...");
+            match discovery::sync_discovered_branches(&ctx.cfg, ctx.repository, &mut ctx.tree).await
+            {
+                Ok(count) if count > 0 => {
+                    println!(
+                        "✓ Discovered {} new branch(es) from GitHub.",
+                        Color::Green.paint(count.to_string())
+                    );
+                }
+                Ok(_) => {
+                    println!("No new branches to discover.");
+                }
+                Err(e) => {
+                    eprintln!(
+                        "{}: {}",
+                        Color::Yellow.paint("Warning: Failed to discover branches"),
+                        e
+                    );
+                }
+            }
+        }
 
         // Resolve all branches in the stack tree after the deletions have been applied.
         let branches = ctx.tree.branches()?;

@@ -1,4 +1,4 @@
-#![doc = include_str!("../README.md")]
+//! `st` - A CLI for managing stacked PRs locally and on GitHub.
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![allow(clippy::result_large_err)]
 
