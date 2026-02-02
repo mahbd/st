@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs, io, path::PathBuf, process::Command};
 use thiserror::Error;
 
-pub(crate) const DEFAULT_CONFIG_PRETTY: &str = r#"# GitHub personal access token. Used for pushing branches to GitHub remotes as well as querying
+pub(crate) const DEFAULT_CONFIG_PRETTY: &str = r##"# GitHub personal access token. Used for pushing branches to GitHub remotes as well as querying
 # information about the active repository.
 #
 # Must have the following scopes:
@@ -21,14 +21,36 @@ github_token = ""
 # Common options: "vim", "emacs", "nano", "code --wait"
 editor = "nano"
 
-# Preferred Ollama model for AI-generated PR descriptions.
-# Leave empty to be prompted each time, or set to a model name like "llama2" or "codellama".
-# If the model is deleted, you'll be prompted to select a new one.
-ollama_model = ""
-
 # Google Gemini API key for AI-generated PR descriptions.
 # Get your API key from: https://aistudio.google.com/app/apikey
-gemini_api_key = """#;
+gemini_api_key = ""
+
+# PR Templates for AI-generated descriptions.
+# When templates are configured, you will be prompted to select one when generating PR descriptions.
+# The AI will then use the selected template to structure the PR description.
+#
+# Example templates:
+# [[pr_templates]]
+# name = "refactor"
+# content = """
+# ## Motivation
+# Why is this refactor needed?
+#
+# ## Changes
+# What was refactored?
+#
+# ## Impact
+# What areas of the codebase are affected?
+# """"##;
+
+/// A PR template for AI-generated descriptions.
+#[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PrTemplate {
+    /// The name of the template (e.g., "feature", "bugfix", "refactor").
+    pub name: String,
+    /// The template content with placeholders for the AI to fill in.
+    pub content: String,
+}
 
 #[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StConfig {
@@ -37,12 +59,12 @@ pub struct StConfig {
     /// Editor to use for commit messages and PR descriptions.
     #[serde(default = "default_editor")]
     pub editor: String,
-    /// Preferred Ollama model for AI-generated PR descriptions.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub ollama_model: String,
     /// Google Gemini API key for AI-generated PR descriptions.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub gemini_api_key: String,
+    /// PR templates for AI-generated descriptions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pr_templates: Vec<PrTemplate>,
 }
 
 fn default_editor() -> String {
@@ -78,8 +100,8 @@ impl StConfig {
                                 return Ok(Some(Self {
                                     github_token: token,
                                     editor: default_editor(),
-                                    ollama_model: String::new(),
                                     gemini_api_key: String::new(),
+                                    pr_templates: Vec::new(),
                                 }));
                             }
                         }
@@ -99,6 +121,16 @@ impl StConfig {
             return Err(StConfigError::MissingField("github_token".to_string()));
         }
         Ok(())
+    }
+
+    /// Gets the list of template names.
+    pub fn template_names(&self) -> Vec<&str> {
+        self.pr_templates.iter().map(|t| t.name.as_str()).collect()
+    }
+
+    /// Gets a template by name.
+    pub fn get_template(&self, name: &str) -> Option<&PrTemplate> {
+        self.pr_templates.iter().find(|t| t.name == name)
     }
 }
 
@@ -158,5 +190,45 @@ mod test {
     fn pretty_default_config_is_valid() {
         let de = toml::from_str::<StConfig>(DEFAULT_CONFIG_PRETTY);
         assert!(de.is_ok());
+    }
+
+    #[test]
+    fn config_with_templates_is_valid() {
+        let config_with_templates = r###"
+github_token = "test_token"
+editor = "vim"
+
+[[pr_templates]]
+name = "feature"
+content = "## Summary\nBrief description."
+
+[[pr_templates]]
+name = "bugfix"
+content = "## Problem\nDescription of the bug."
+"###;
+        let config: StConfig = toml::from_str(config_with_templates).unwrap();
+        assert_eq!(config.pr_templates.len(), 2);
+        assert_eq!(config.pr_templates[0].name, "feature");
+        assert_eq!(config.pr_templates[1].name, "bugfix");
+    }
+
+    #[test]
+    fn template_helpers_work() {
+        let config_with_templates = r###"
+github_token = "test_token"
+editor = "vim"
+
+[[pr_templates]]
+name = "feature"
+content = "## Summary\nBrief description."
+
+[[pr_templates]]
+name = "bugfix"
+content = "## Problem\nDescription of the bug."
+"###;
+        let config: StConfig = toml::from_str(config_with_templates).unwrap();
+        assert_eq!(config.template_names(), vec!["feature", "bugfix"]);
+        assert!(config.get_template("feature").is_some());
+        assert!(config.get_template("nonexistent").is_none());
     }
 }

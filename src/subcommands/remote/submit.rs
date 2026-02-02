@@ -280,9 +280,10 @@ impl SubmitCmd {
         commits: &[String],
         diff: &str,
     ) -> StResult<PRCreationMetadata> {
+        // Step 1: Write PR title
         let title = inquire::Text::new(
             format!(
-                "Title of pull request (`{}` -> `{}`):" ,
+                "Title of pull request (`{}` -> `{}`):",
                 Color::Green.paint(branch_name),
                 Color::Yellow.paint(parent_name)
             )
@@ -290,114 +291,56 @@ impl SubmitCmd {
         )
         .prompt()?;
 
-        // Determine which AI option is available
-        let ollama_available = crate::ai::is_ollama_available().await;
-        let gemini_available = !config.gemini_api_key.is_empty();
+        // Step 2: Ask to choose template if multiple templates available
+        let template_names: Vec<&str> = config.template_names();
+        let selected_template = if template_names.len() > 1 {
+            // Multiple templates, ask user to choose
+            let selected_name = inquire::Select::new(
+                "Select a PR template:",
+                template_names,
+            )
+            .prompt()?;
 
-        // If both are available, let user choose
-        let use_ai = if ollama_available || gemini_available {
-            let mut options = vec!["Manual entry"];
-            if ollama_available {
-                options.push("Ollama (local)");
-            }
-            if gemini_available {
-                options.push("Gemini (cloud)");
-            }
-
-            if options.len() == 1 {
-                // Only manual entry available
-                false
-            } else {
-                let choice = inquire::Select::new(
-                    "How would you like to write the PR description?",
-                    options,
-                )
-                .prompt()?;
-
-                choice != "Manual entry"
-            }
+            println!(
+                "{} {}",
+                Color::Green.paint("✓ Selected template:"),
+                Color::Cyan.paint(selected_name)
+            );
+            config.get_template(selected_name)
+        } else if template_names.len() == 1 {
+            // Single template, use it directly (no prompt)
+            config.get_template(template_names[0])
         } else {
-            false
+            // No templates configured
+            None
         };
 
-        let body = if use_ai {
-            // Determine which AI service to use
-            let ai_choice = if ollama_available && gemini_available {
-                inquire::Select::new(
-                    "Select AI service:",
-                    vec!["Ollama (local)", "Gemini (cloud)"],
-                )
-                .prompt()?
-            } else if ollama_available {
-                "Ollama (local)"
-            } else {
-                "Gemini (cloud)"
-            };
-
-            if ai_choice == "Ollama (local)" {
-                // Ollama flow
-                let models = crate::ai::list_models().await?;
-                if models.is_empty() {
-                    eprintln!(
-                        "{}",
-                        Color::Yellow.paint("No Ollama models found. Falling back to manual entry.")
-                    );
-                    inquire::Editor::new("Pull request description")
-                        .with_file_extension(".md")
-                        .prompt()?
-                } else {
-                    let model = if !config.ollama_model.is_empty() 
-                        && models.contains(&config.ollama_model) {
-                        println!(
-                            "{} {}",
-                            Color::Blue.paint("Using saved Ollama model:"),
-                            Color::Green.paint(&config.ollama_model)
-                        );
-                        config.ollama_model.clone()
-                    } else {
-                        let selected = inquire::Select::new("Select Ollama model:", models).prompt()?;
-                        config.ollama_model = selected.clone();
-                        selected
-                    };
-
-                    println!(
-                        "{}",
-                        Color::Blue.paint("Generating PR description with Ollama...")
-                    );
-
-                    match crate::ai::generate_pr_description(&model, &title, branch_name, parent_name, commits, diff)
-                        .await
-                    {
-                        Ok(generated) => {
-                            println!(
-                                "{}",
-                                Color::Green.paint("✓ Generated PR description. Review and edit if needed.")
-                            );
-                            inquire::Editor::new("Review and edit PR description")
-                                .with_file_extension(".md")
-                                .with_predefined_text(&generated)
-                                .prompt()?
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "{}: {}",
-                                Color::Red.paint("AI generation failed"),
-                                e
-                            );
-                            inquire::Editor::new("Pull request description")
-                                .with_file_extension(".md")
-                                .prompt()?
-                        }
-                    }
-                }
-            } else {
-                // Gemini flow
+        // Step 3: Generate PR description from Gemini (skip if no API key)
+        let gemini_available = !config.gemini_api_key.is_empty();
+        let ai_generated_description = if gemini_available {
+            let result = if let Some(template) = selected_template {
                 println!(
                     "{}",
                     Color::Blue.paint("Generating PR description with Gemini...")
                 );
 
-                match crate::ai::generate_pr_description_with_gemini(
+                crate::ai::generate_pr_description_with_template_gemini(
+                    &config.gemini_api_key,
+                    template,
+                    &title,
+                    branch_name,
+                    parent_name,
+                    commits,
+                    diff,
+                )
+                .await
+            } else {
+                println!(
+                    "{}",
+                    Color::Blue.paint("Generating PR description with Gemini...")
+                );
+
+                crate::ai::generate_pr_description_with_gemini(
                     &config.gemini_api_key,
                     &title,
                     branch_name,
@@ -406,39 +349,52 @@ impl SubmitCmd {
                     diff,
                 )
                 .await
-                {
-                    Ok(generated) => {
-                        println!(
-                            "{}",
-                            Color::Green.paint("✓ Generated PR description. Review and edit if needed.")
-                        );
-                        inquire::Editor::new("Review and edit PR description")
-                            .with_file_extension(".md")
-                            .with_predefined_text(&generated)
-                            .prompt()?
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "{}: {}",
-                            Color::Red.paint("Gemini generation failed"),
-                            e
-                        );
-                        inquire::Editor::new("Pull request description")
-                            .with_file_extension(".md")
-                            .prompt()?
-                    }
+            };
+
+            match result {
+                Ok(generated) => {
+                    println!(
+                        "{}",
+                        Color::Green.paint("✓ Generated PR description.")
+                    );
+                    Some(generated)
+                }
+                Err(e) => {
+                    eprintln!("{}: {}", Color::Red.paint("Gemini generation failed"), e);
+                    None
                 }
             }
         } else {
+            None
+        };
+
+        // Step 4: Open editor to edit PR description
+        // Show AI-generated description if available, otherwise show template content
+        let predefined_text = if let Some(ref ai_desc) = ai_generated_description {
+            ai_desc.clone()
+        } else if let Some(template) = selected_template {
+            template.content.clone()
+        } else {
+            String::new()
+        };
+
+        let body = if predefined_text.is_empty() {
             inquire::Editor::new("Pull request description")
                 .with_file_extension(".md")
                 .prompt()?
+        } else {
+            inquire::Editor::new("Review and edit PR description")
+                .with_file_extension(".md")
+                .with_predefined_text(&predefined_text)
+                .prompt()?
         };
 
+        // Step 5: Ask if it is draft or not
         let is_draft = inquire::Confirm::new("Is this PR a draft? (default: yes)")
             .with_default(true)
             .prompt()?;
 
+        // Step 6: Return metadata for submission
         Ok(PRCreationMetadata {
             title,
             body,

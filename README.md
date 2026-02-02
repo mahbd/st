@@ -67,7 +67,8 @@ Commands:
   untrack   Untrack the passed branch [aliases: ut]
   config    Configure the st application [aliases: cfg]
             - Set your preferred editor (default: nano, or $EDITOR env var)
-            - Configure Ollama model for AI-powered PR descriptions
+            - Configure Gemini API key for AI-powered PR descriptions
+            - Set up PR templates for consistent PR formatting
   trunk     Manage trunk branches (list, switch, add, remove) [aliases: t]
             Subcommands:
               list     List all trunk branches [aliases: ls]
@@ -85,7 +86,8 @@ Options:
 ### Features
 
 - **Multi-Trunk Support**: Work with multiple base branches (main, dev, staging) simultaneously. Each trunk maintains its own independent branch tree.
-- **AI-Powered PR Descriptions**: Generate PR descriptions using local Ollama models with context from commits and diffs.
+- **AI-Powered PR Descriptions**: Generate PR descriptions using Google Gemini API with context from commits and diffs.
+- **PR Templates**: Define multiple PR templates (feature, bugfix, refactor, etc.) and select which one to use when creating PRs. The AI will use the selected template to structure the PR description.
 - **Configurable Editor**: Use your preferred editor via the `EDITOR` environment variable or configure it with `st config`.
 - **Branching Stacks**: Create complex branch hierarchies with siblings and nested stacks.
 - **GitHub Integration**: Seamless PR creation and status tracking via GitHub API.

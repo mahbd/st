@@ -81,9 +81,7 @@ pub enum StError {
     /// An [octocrab::Error] occurred.
     #[error("🐙 octocrab error: {:?}", .0)]
     OctocrabError(#[from] octocrab::Error),
-    /// An [ollama_rs::error::OllamaError] occurred.
-    #[error("🤖 ollama error: {}", .0)]
-    OllamaError(#[from] ollama_rs::error::OllamaError),
+
     /// A [reqwest::Error] occurred.
     #[error("🌐 reqwest error: {}", .0)]
     ReqwestError(#[from] reqwest::Error),
